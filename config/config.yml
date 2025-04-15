@@ -2,3 +2,4 @@ openai_api_key: ${OPENAI_API_KEY}
 telegram_token: ${TELEGRAM_BOT_TOKEN}
 allowed_telegram_usernames:
   - Bugri_Bot
+new_dialog_timeout: 600
