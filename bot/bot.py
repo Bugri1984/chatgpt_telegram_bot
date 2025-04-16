@@ -786,7 +786,7 @@ async def edited_message_handle(update: Update, context: CallbackContext):
         await update.edited_message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
-aasync def error_handle(update: Update, context: CallbackContext) -> None:
+async def error_handle(update: Update, context: CallbackContext) -> None:
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
 
     # Если update отсутствует или нет effective_chat, просто логируем ошибку и выходим
