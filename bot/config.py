@@ -9,8 +9,15 @@ with open(config_dir / "config.yml", 'r') as f:
     config_yaml = yaml.safe_load(f)
 
 # config parameters
-telegram_token = config_yaml["telegram_token"]
-openai_api_key = config_yaml["openai_api_key"]
+# Заменяем плейсхолдер telegram_token значением из переменной окружения
+telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", config_yaml["telegram_token"])
+if telegram_token.startswith("${"):
+    raise ValueError("TELEGRAM_BOT_TOKEN is not set in environment variables or is invalid")
+
+openai_api_key = os.getenv("OPENAI_API_KEY", config_yaml["openai_api_key"])
+if openai_api_key.startswith("${"):
+    raise ValueError("OPENAI_API_KEY is not set in environment variables or is invalid")
+
 openai_api_base = config_yaml.get("openai_api_base", None)
 allowed_telegram_usernames = config_yaml["allowed_telegram_usernames"]
 new_dialog_timeout = config_yaml["new_dialog_timeout"]
