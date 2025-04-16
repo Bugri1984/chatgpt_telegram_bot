@@ -32,7 +32,7 @@ import database
 import openai_utils
 
 import base64
-from aiohttp import web  # Для HTTP-сервера
+from aiohttp import web
 
 # setup
 db = database.Database()
@@ -127,17 +127,23 @@ async def is_bot_mentioned(update: Update, context: CallbackContext):
         return False
 
 async def start_handle(update: Update, context: CallbackContext):
-    await register_user_if_not_exists(update, context, update.message.from_user)
-    user_id = update.message.from_user.id
+    print(f"Received /start command from user: {update.message.from_user.id}, username: {update.message.from_user.username}")
+    try:
+        await register_user_if_not_exists(update, context, update.message.from_user)
+        user_id = update.message.from_user.id
 
-    db.set_user_attribute(user_id, "last_interaction", datetime.now())
-    db.start_new_dialog(user_id)
+        db.set_user_attribute(user_id, "last_interaction", datetime.now())
+        db.start_new_dialog(user_id)
 
-    reply_text = "Hi! I'm <b>ChatGPT</b> bot implemented with OpenAI API 🤖\n\n"
-    reply_text += HELP_MESSAGE
+        reply_text = "Hi! I'm <b>ChatGPT</b> bot implemented with OpenAI API 🤖\n\n"
+        reply_text += HELP_MESSAGE
 
-    await update.message.reply_text(reply_text, parse_mode=ParseMode.HTML)
-    await show_chat_modes_handle(update, context)
+        await update.message.reply_text(reply_text, parse_mode=ParseMode.HTML)
+        await show_chat_modes_handle(update, context)
+        print(f"Successfully sent response to /start for user {user_id}")
+    except Exception as e:
+        print(f"Error in start_handle for user {user_id}: {e}")
+        raise
 
 async def help_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
@@ -175,7 +181,7 @@ async def retry_handle(update: Update, context: CallbackContext):
 async def _vision_message_handle_fn(
     update: Update, context: CallbackContext, use_new_dialog_timeout: bool = True
 ):
-    logger.info('_vision_message_handle_fn')
+    logger.info('_vision_message_handle_fn called')
     user_id = update.message.from_user.id
     current_model = db.get_user_attribute(user_id, "current_model")
 
@@ -454,10 +460,6 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
     async with user_semaphores[user_id]:
         if current_model == "gpt-4-vision-preview" or current_model == "gpt-4o" or update.message.photo is not None and len(update.message.photo) > 0:
-
-            logger.error(current_model)
-            # What is this? ^^^
-
             if current_model != "gpt-4o" and current_model != "gpt-4-vision-preview":
                 current_model = "gpt-4o"
                 db.set_user_attribute(user_id, "current_model", "gpt-4o")
@@ -773,24 +775,16 @@ async def error_handle(update: Update, context: CallbackContext) -> None:
         return
 
     try:
-        # collect error message
+        # Для пользователей отправляем краткое сообщение
+        await context.bot.send_message(
+            update.effective_chat.id,
+            "Something went wrong, please try again later.",
+            parse_mode=ParseMode.HTML
+        )
+        # Логируем полную ошибку для разработчика
         tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
         tb_string = "".join(tb_list)
-        update_str = update.to_dict() if isinstance(update, Update) else str(update)
-        message = (
-            f"An exception was raised while handling an update\n"
-            f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
-            "</pre>\n\n"
-            f"<pre>{html.escape(tb_string)}</pre>"
-        )
-
-        # split text into multiple messages due to 4096 character limit
-        for message_chunk in split_text_into_chunks(message, 4096):
-            try:
-                await context.bot.send_message(update.effective_chat.id, message_chunk, parse_mode=ParseMode.HTML)
-            except telegram.error.BadRequest:
-                # answer has invalid characters, so we send it without parse_mode
-                await context.bot.send_message(update.effective_chat.id, message_chunk)
+        logger.error(f"Full traceback:\n{tb_string}")
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
 
@@ -808,13 +802,140 @@ async def health_check(request):
     return web.Response(text="OK")
 
 async def start_http_server():
-    app = web.Application()
-    app.add_routes([web.get('/', health_check)])
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
-    await site.start()
-    print("HTTP server started on port 8080")
-    return runner  # Возвращаем runner для корректного завершения
+    try:
+        app = web.Application()
+        app.add_routes([web.get('/', health_check)])
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', 8080)
+        await site.start()
+        print("HTTP server started on port 8080")
+        return runner
+    except Exception as e:
+        print(f"Failed to start HTTP server: {e}")
+        raise
 
-run_bot_async
+async def run_bot_async():
+    print("Starting bot with token:", config.telegram_token[:10], "...")
+    try:
+        application = (
+            ApplicationBuilder()
+            .token(config.telegram_token)
+            .concurrent_updates(True)
+            .rate_limiter(AIORateLimiter(max_retries=5))
+            .http_version("1.1")
+            .get_updates_http_version("1.1")
+            .read_timeout(30)
+            .write_timeout(30)
+            .connect_timeout(30)
+            .post_init(post_init)
+            .build()
+        )
+        print("Application built successfully")
+    except Exception as e:
+        print(f"Failed to build application: {e}")
+        raise
+
+    # add handlers
+    user_filter = filters.ALL
+    if len(config.allowed_telegram_usernames) > 0:
+        usernames = [x for x in config.allowed_telegram_usernames if isinstance(x, str)]
+        any_ids = [x for x in config.allowed_telegram_usernames if isinstance(x, int)]
+        user_ids = [x for x in any_ids if x > 0]
+        group_ids = [x for x in any_ids if x < 0]
+        user_filter = filters.User(username=usernames) | filters.User(user_id=user_ids) | filters.Chat(chat_id=group_ids)
+        print(f"User filter applied: usernames={usernames}, user_ids={user_ids}, group_ids={group_ids}")
+
+    application.add_handler(CommandHandler("start", start_handle, filters=user_filter))
+    application.add_handler(CommandHandler("help", help_handle, filters=user_filter))
+    application.add_handler(CommandHandler("help_group_chat", help_group_chat_handle, filters=user_filter))
+
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & user_filter, message_handle))
+    application.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND & user_filter, message_handle))
+    application.add_handler(MessageHandler(filters.VIDEO & ~filters.COMMAND & user_filter, unsupport_message_handle))
+    application.add_handler(MessageHandler(filters.Document.ALL & ~filters.COMMAND & user_filter, unsupport_message_handle))
+    application.add_handler(CommandHandler("retry", retry_handle, filters=user_filter))
+    application.add_handler(CommandHandler("new", new_dialog_handle, filters=user_filter))
+    application.add_handler(CommandHandler("cancel", cancel_handle, filters=user_filter))
+
+    application.add_handler(MessageHandler(filters.VOICE & user_filter, voice_message_handle))
+
+    application.add_handler(CommandHandler("mode", show_chat_modes_handle, filters=user_filter))
+    application.add_handler(CallbackQueryHandler(show_chat_modes_callback_handle, pattern="^show_chat_modes"))
+    application.add_handler(CallbackQueryHandler(set_chat_mode_handle, pattern="^set_chat_mode"))
+
+    application.add_handler(CommandHandler("settings", settings_handle, filters=user_filter))
+    application.add_handler(CallbackQueryHandler(set_settings_handle, pattern="^set_settings"))
+
+    application.add_handler(CommandHandler("balance", show_balance_handle, filters=user_filter))
+
+    application.add_error_handler(error_handle)
+
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"Attempt {attempt} to initialize bot...")
+            await application.initialize()
+            print("Bot initialized")
+            await application.updater.start_polling()
+            print("Polling started")
+            await application.start()
+            print("Bot started successfully")
+            await asyncio.Event().wait()  # Держим бота активным
+        except telegram.error.Conflict as e:
+            print(f"Conflict on attempt {attempt}: {e}")
+            if attempt == max_retries:
+                print("Max retries reached. Giving up.")
+                raise
+            await asyncio.sleep(10 * attempt)
+        except telegram.error.TimedOut as e:
+            print(f"Timed out on attempt {attempt}: {e}")
+            if attempt == max_retries:
+                print("Max retries reached. Giving up.")
+                raise
+            await asyncio.sleep(10 * attempt)
+        except telegram.error.InvalidToken as e:
+            print(f"Invalid token error: {e}")
+            raise
+        except Exception as e:
+            print(f"Unexpected error on attempt {attempt}: {e}")
+            raise
+        finally:
+            try:
+                print("Shutting down bot...")
+                if application.updater and application.updater.running:
+                    await application.updater.stop()
+                    print("Updater stopped")
+                if application.running:
+                    await application.stop()
+                    print("Application stopped")
+                await application.shutdown()
+                print("Shutdown complete")
+            except Exception as e:
+                print(f"Error during shutdown: {e}")
+
+def main():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    runner = None
+    try:
+        print("Starting main function...")
+        # Запускаем HTTP-сервер
+        runner = loop.run_until_complete(start_http_server())
+        # Запускаем бота
+        loop.run_until_complete(run_bot_async())
+    except KeyboardInterrupt:
+        print("Bot stopped manually")
+    except Exception as e:
+        print(f"Fatal error: {e}")
+    finally:
+        print("Cleaning up...")
+        if runner:
+            loop.run_until_complete(runner.cleanup())
+            print("HTTP server cleaned up")
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
+        print("Application shut down")
+
+if __name__ == "__main__":
+    main()
