@@ -1,5 +1,5 @@
 import yaml
-import dotenv
+import os
 from pathlib import Path
 
 config_dir = Path(__file__).parent.parent.resolve() / "config"
@@ -21,7 +21,7 @@ enable_message_streaming = config_yaml.get("enable_message_streaming", True)
 return_n_generated_images = config_yaml.get("return_n_generated_images", 1)
 image_size = config_yaml.get("image_size", "512x512")
 n_chat_modes_per_page = config_yaml.get("n_chat_modes_per_page", 5)
-mongodb_uri = config_env.get('MONGODB_URI')
+mongodb_uri = os.environ.get('MONGODB_URI')  # <-- читаем из переменной окружения
 if mongodb_uri is None:
     raise ValueError("MONGODB_URI is not set in environment variables")
 
