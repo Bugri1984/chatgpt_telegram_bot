@@ -786,8 +786,13 @@ async def edited_message_handle(update: Update, context: CallbackContext):
         await update.edited_message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
-async def error_handle(update: Update, context: CallbackContext) -> None:
+aasync def error_handle(update: Update, context: CallbackContext) -> None:
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
+
+    # Если update отсутствует или нет effective_chat, просто логируем ошибку и выходим
+    if update is None or not hasattr(update, 'effective_chat') or update.effective_chat is None:
+        logger.error("Cannot send error message: update is None or effective_chat is not available")
+        return
 
     try:
         # collect error message
@@ -808,8 +813,8 @@ async def error_handle(update: Update, context: CallbackContext) -> None:
             except telegram.error.BadRequest:
                 # answer has invalid characters, so we send it without parse_mode
                 await context.bot.send_message(update.effective_chat.id, message_chunk)
-    except:
-        await context.bot.send_message(update.effective_chat.id, "Some error in error handler")
+    except Exception as e:
+        logger.error(f"Error in error handler: {e}")
 
 async def post_init(application: Application):
     await application.bot.set_my_commands([
