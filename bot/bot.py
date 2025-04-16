@@ -32,6 +32,7 @@ import database
 import openai_utils
 
 import base64
+from aiohttp import web  # Для HTTP-сервера
 
 # setup
 db = database.Database()
@@ -64,11 +65,9 @@ To get a reply from the bot in the chat – @ <b>tag</b> it or <b>reply</b> to i
 For example: "{bot_username} write a poem about Telegram"
 """
 
-
 def split_text_into_chunks(text, chunk_size):
     for i in range(0, len(text), chunk_size):
         yield text[i:i + chunk_size]
-
 
 async def register_user_if_not_exists(update: Update, context: CallbackContext, user: User):
     if not db.check_if_user_exists(user.id):
@@ -77,7 +76,7 @@ async def register_user_if_not_exists(update: Update, context: CallbackContext, 
             update.message.chat_id,
             username=user.username,
             first_name=user.first_name,
-            last_name= user.last_name
+            last_name=user.last_name
         )
         db.start_new_dialog(user.id)
 
@@ -109,25 +108,23 @@ async def register_user_if_not_exists(update: Update, context: CallbackContext, 
     if db.get_user_attribute(user.id, "n_generated_images") is None:
         db.set_user_attribute(user.id, "n_generated_images", 0)
 
-
 async def is_bot_mentioned(update: Update, context: CallbackContext):
-     try:
-         message = update.message
+    try:
+        message = update.message
 
-         if message.chat.type == "private":
-             return True
+        if message.chat.type == "private":
+            return True
 
-         if message.text is not None and ("@" + context.bot.username) in message.text:
-             return True
+        if message.text is not None and ("@" + context.bot.username) in message.text:
+            return True
 
-         if message.reply_to_message is not None:
-             if message.reply_to_message.from_user.id == context.bot.id:
-                 return True
-     except:
-         return True
-     else:
-         return False
-
+        if message.reply_to_message is not None:
+            if message.reply_to_message.from_user.id == context.bot.id:
+                return True
+    except:
+        return True
+    else:
+        return False
 
 async def start_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
@@ -142,24 +139,21 @@ async def start_handle(update: Update, context: CallbackContext):
     await update.message.reply_text(reply_text, parse_mode=ParseMode.HTML)
     await show_chat_modes_handle(update, context)
 
-
 async def help_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
     user_id = update.message.from_user.id
     db.set_user_attribute(user_id, "last_interaction", datetime.now())
     await update.message.reply_text(HELP_MESSAGE, parse_mode=ParseMode.HTML)
 
-
 async def help_group_chat_handle(update: Update, context: CallbackContext):
-     await register_user_if_not_exists(update, context, update.message.from_user)
-     user_id = update.message.from_user.id
-     db.set_user_attribute(user_id, "last_interaction", datetime.now())
+    await register_user_if_not_exists(update, context, update.message.from_user)
+    user_id = update.message.from_user.id
+    db.set_user_attribute(user_id, "last_interaction", datetime.now())
 
-     text = HELP_GROUP_CHAT_MESSAGE.format(bot_username="@" + context.bot.username)
+    text = HELP_GROUP_CHAT_MESSAGE.format(bot_username="@" + context.bot.username)
 
-     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-     await update.message.reply_video(config.help_group_chat_video_path)
-
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+    await update.message.reply_video(config.help_group_chat_video_path)
 
 async def retry_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
@@ -487,7 +481,6 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
             if user_id in user_tasks:
                 del user_tasks[user_id]
 
-
 async def is_previous_message_not_answered_yet(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
 
@@ -499,7 +492,6 @@ async def is_previous_message_not_answered_yet(update: Update, context: Callback
         return True
     else:
         return False
-
 
 async def voice_message_handle(update: Update, context: CallbackContext):
     # check if bot was mentioned (for group chats)
@@ -530,7 +522,6 @@ async def voice_message_handle(update: Update, context: CallbackContext):
 
     await message_handle(update, context, message=transcribed_text)
 
-
 async def generate_image_handle(update: Update, context: CallbackContext, message=None):
     await register_user_if_not_exists(update, context, update.message.from_user)
     if await is_previous_message_not_answered_yet(update, context): return
@@ -559,7 +550,6 @@ async def generate_image_handle(update: Update, context: CallbackContext, messag
         await update.message.chat.send_action(action="upload_photo")
         await update.message.reply_photo(image_url, parse_mode=ParseMode.HTML)
 
-
 async def new_dialog_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
     if await is_previous_message_not_answered_yet(update, context): return
@@ -574,7 +564,6 @@ async def new_dialog_handle(update: Update, context: CallbackContext):
     chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
     await update.message.reply_text(f"{config.chat_modes[chat_mode]['welcome_message']}", parse_mode=ParseMode.HTML)
 
-
 async def cancel_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
 
@@ -586,7 +575,6 @@ async def cancel_handle(update: Update, context: CallbackContext):
         task.cancel()
     else:
         await update.message.reply_text("<i>Nothing to cancel...</i>", parse_mode=ParseMode.HTML)
-
 
 def get_chat_mode_menu(page_index: int):
     n_chat_modes_per_page = config.n_chat_modes_per_page
@@ -624,7 +612,6 @@ def get_chat_mode_menu(page_index: int):
 
     return text, reply_markup
 
-
 async def show_chat_modes_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
     if await is_previous_message_not_answered_yet(update, context): return
@@ -635,28 +622,26 @@ async def show_chat_modes_handle(update: Update, context: CallbackContext):
     text, reply_markup = get_chat_mode_menu(0)
     await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
-
 async def show_chat_modes_callback_handle(update: Update, context: CallbackContext):
-     await register_user_if_not_exists(update.callback_query, context, update.callback_query.from_user)
-     if await is_previous_message_not_answered_yet(update.callback_query, context): return
+    await register_user_if_not_exists(update.callback_query, context, update.callback_query.from_user)
+    if await is_previous_message_not_answered_yet(update.callback_query, context): return
 
-     user_id = update.callback_query.from_user.id
-     db.set_user_attribute(user_id, "last_interaction", datetime.now())
+    user_id = update.callback_query.from_user.id
+    db.set_user_attribute(user_id, "last_interaction", datetime.now())
 
-     query = update.callback_query
-     await query.answer()
+    query = update.callback_query
+    await query.answer()
 
-     page_index = int(query.data.split("|")[1])
-     if page_index < 0:
-         return
+    page_index = int(query.data.split("|")[1])
+    if page_index < 0:
+        return
 
-     text, reply_markup = get_chat_mode_menu(page_index)
-     try:
-         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
-     except telegram.error.BadRequest as e:
-         if str(e).startswith("Message is not modified"):
-             pass
-
+    text, reply_markup = get_chat_mode_menu(page_index)
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+    except telegram.error.BadRequest as e:
+        if str(e).startswith("Message is not modified"):
+            pass
 
 async def set_chat_mode_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update.callback_query, context, update.callback_query.from_user)
@@ -675,7 +660,6 @@ async def set_chat_mode_handle(update: Update, context: CallbackContext):
         f"{config.chat_modes[chat_mode]['welcome_message']}",
         parse_mode=ParseMode.HTML
     )
-
 
 def get_settings_menu(user_id: int):
     current_model = db.get_user_attribute(user_id, "current_model")
@@ -702,7 +686,6 @@ def get_settings_menu(user_id: int):
 
     return text, reply_markup
 
-
 async def settings_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
     if await is_previous_message_not_answered_yet(update, context): return
@@ -712,7 +695,6 @@ async def settings_handle(update: Update, context: CallbackContext):
 
     text, reply_markup = get_settings_menu(user_id)
     await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
-
 
 async def set_settings_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update.callback_query, context, update.callback_query.from_user)
@@ -731,7 +713,6 @@ async def set_settings_handle(update: Update, context: CallbackContext):
     except telegram.error.BadRequest as e:
         if str(e).startswith("Message is not modified"):
             pass
-
 
 async def show_balance_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
@@ -772,19 +753,16 @@ async def show_balance_handle(update: Update, context: CallbackContext):
 
     total_n_spent_dollars += voice_recognition_n_spent_dollars
 
-
     text = f"You spent <b>{total_n_spent_dollars:.03f}$</b>\n"
     text += f"You used <b>{total_n_used_tokens}</b> tokens\n\n"
     text += details_text
 
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
-
 async def edited_message_handle(update: Update, context: CallbackContext):
     if update.edited_message.chat.type == "private":
         text = "🥲 Unfortunately, message <b>editing</b> is not supported"
         await update.edited_message.reply_text(text, parse_mode=ParseMode.HTML)
-
 
 async def error_handle(update: Update, context: CallbackContext) -> None:
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
@@ -826,7 +804,21 @@ async def post_init(application: Application):
         BotCommand("/help", "Show help message"),
     ])
 
-def run_bot() -> None:
+async def health_check(request):
+    return web.Response(text="OK")
+
+async def start_http_server():
+    app = web.Application()
+    app.add_routes([web.get('/', health_check)])
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+    print("HTTP server started on port 8080")
+    return runner  # Возвращаем runner для корректного завершения
+
+async def run_bot_async():
+    print("Starting bot with token:", config.telegram_token[:10], "...")
     application = (
         ApplicationBuilder()
         .token(config.telegram_token)
@@ -872,66 +864,30 @@ def run_bot() -> None:
 
     application.add_error_handler(error_handle)
 
-    # start the bot
-    application.run_polling()
-
-
-if __name__ == "__main__":
-    from aiohttp import web
-import asyncio
-
-async def health_check(request):
-    return web.Response(text="OK")
-
-async def start_http_server():
-    app = web.Application()
-    app.add_routes([web.get('/', health_check)])
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
-    await site.start()
-    print("HTTP server started on port 8080")
-
-async def run_bot_async():
-    print("Starting bot with token:", config.telegram_token[:10], "...")
-    application = (
-        ApplicationBuilder()
-        .token(config.telegram_token)
-        .concurrent_updates(True)
-        .rate_limiter(AIORateLimiter(max_retries=5))
-        .http_version("1.1")
-        .get_updates_http_version("1.1")
-        .post_init(post_init)
-        .build()
-    )
-
-    # Handlers
-    user_filter = filters.ALL
-    if len(config.allowed_telegram_usernames) > 0:
-        usernames = [x for x in config.allowed_telegram_usernames if isinstance(x, str)]
-        any_ids = [x for x in config.allowed_telegram_usernames if isinstance(x, int)]
-        user_ids = [x for x in any_ids if x > 0]
-        group_ids = [x for x in any_ids if x < 0]
-        user_filter = filters.User(username=usernames) | filters.User(user_id=user_ids) | filters.Chat(chat_id=group_ids)
-
-    application.add_handler(CommandHandler("start", start_handle, filters=user_filter))
-    # ... (остальные handlers без изменений)
-
-    application.add_error_handler(error_handle)
-
-    await application.run_polling()
-
-def run_bot():
-    loop = asyncio.get_event_loop()
     try:
-        # Запускаем HTTP-сервер и бота параллельно
-        tasks = [
-            loop.create_task(start_http_server()),
-            loop.create_task(run_bot_async())
-        ]
-        loop.run_until_complete(asyncio.gather(*tasks))
+        await application.initialize()
+        await application.updater.start_polling()
+        await application.start()
+        # Держим бота активным
+        await asyncio.Event().wait()
     finally:
+        await application.stop()
+        await application.updater.stop()
+        await application.shutdown()
+
+def main():
+    # Создаём новый цикл событий
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        # Запускаем HTTP-сервер и бота как корутины
+        loop.run_until_complete(start_http_server())
+        loop.run_until_complete(run_bot_async())
+    except KeyboardInterrupt:
+        print("Bot stopped manually")
+    finally:
+        loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()
 
 if __name__ == "__main__":
-    run_bot()
+    main()
