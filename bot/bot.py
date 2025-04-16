@@ -826,6 +826,9 @@ async def run_bot_async():
         .rate_limiter(AIORateLimiter(max_retries=5))
         .http_version("1.1")
         .get_updates_http_version("1.1")
+        .read_timeout(30)
+        .write_timeout(30)
+        .connect_timeout(30)
         .post_init(post_init)
         .build()
     )
@@ -864,30 +867,71 @@ async def run_bot_async():
 
     application.add_error_handler(error_handle)
 
-    try:
-        await application.initialize()
-        await application.updater.start_polling()
-        await application.start()
-        # Держим бота активным
-        await asyncio.Event().wait()
-    finally:
-        await application.stop()
-        await application.updater.stop()
-        await application.shutdown()
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"Attempt {attempt} to initialize bot...")
+            await application.initialize()
+            print("Bot initialized")
+            await application.updater.start_polling()
+            print("Polling started")
+            await application.start()
+            print("Bot started successfully")
+            await asyncio.Event().wait()  # Держим бота активным
+        except telegram.error.Conflict as e:
+            print(f"Conflict on attempt {attempt}: {e}")
+            if attempt == max_retries:
+                print("Max retries reached. Giving up.")
+                raise
+            await asyncio.sleep(10 * attempt)  # Экспоненциальная задержка
+        except telegram.error.TimedOut as e:
+            print(f"Timed out on attempt {attempt}: {e}")
+            if attempt == max_retries:
+                print("Max retries reached. Giving up.")
+                raise
+            await asyncio.sleep(10 * attempt)
+        except telegram.error.InvalidToken as e:
+            print(f"Invalid token error: {e}")
+            raise
+        except Exception as e:
+            print(f"Unexpected error on attempt {attempt}: {e}")
+            raise
+        finally:
+            try:
+                print("Shutting down bot...")
+                if application.updater and application.updater.running:
+                    await application.updater.stop()
+                    print("Updater stopped")
+                if application.running:
+                    await application.stop()
+                    print("Application stopped")
+                await application.shutdown()
+                print("Shutdown complete")
+            except Exception as e:
+                print(f"Error during shutdown: {e}")
 
 def main():
-    # Создаём новый цикл событий
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    runner = None
     try:
-        # Запускаем HTTP-сервер и бота как корутины
-        loop.run_until_complete(start_http_server())
+        print("Starting main function...")
+        # Запускаем HTTP-сервер
+        runner = loop.run_until_complete(start_http_server())
+        # Запускаем бота
         loop.run_until_complete(run_bot_async())
     except KeyboardInterrupt:
         print("Bot stopped manually")
+    except Exception as e:
+        print(f"Fatal error: {e}")
     finally:
+        print("Cleaning up...")
+        if runner:
+            loop.run_until_complete(runner.cleanup())
+            print("HTTP server cleaned up")
         loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()
+        print("Application shut down")
 
 if __name__ == "__main__":
     main()
