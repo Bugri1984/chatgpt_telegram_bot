@@ -877,4 +877,53 @@ def run_bot() -> None:
 
 
 if __name__ == "__main__":
+    from aiohttp import web
+import asyncio
+
+async def health_check(request):
+    return web.Response(text="OK")
+
+async def start_http_server():
+    app = web.Application()
+    app.add_routes([web.get('/', health_check)])
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)  # Открываем порт 8080
+    await site.start()
+    print("HTTP server started on port 8080")
+
+def run_bot() -> None:
+    print("Starting bot with token:", config.telegram_token[:10], "...")
+    application = (
+        ApplicationBuilder()
+        .token(config.telegram_token)
+        .concurrent_updates(True)
+        .rate_limiter(AIORateLimiter(max_retries=5))
+        .http_version("1.1")
+        .get_updates_http_version("1.1")
+        .post_init(post_init)
+        .build()
+    )
+
+    # Добавляем handlers (оставь свой текущий код без изменений)
+    user_filter = filters.ALL
+    if len(config.allowed_telegram_usernames) > 0:
+        usernames = [x for x in config.allowed_telegram_usernames if isinstance(x, str)]
+        any_ids = [x for x in config.allowed_telegram_usernames if isinstance(x, int)]
+        user_ids = [x for x in any_ids if x > 0]
+        group_ids = [x for x in any_ids if x < 0]
+        user_filter = filters.User(username=usernames) | filters.User(user_id=user_ids) | filters.Chat(chat_id=group_ids)
+
+    application.add_handler(CommandHandler("start", start_handle, filters=user_filter))
+    # ... (остальные handlers без изменений)
+
+    application.add_error_handler(error_handle)
+
+    # Запускаем HTTP-сервер и бота одновременно
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_http_server())  # Запускаем HTTP-сервер
+    application.run_polling()
+
+if __name__ == "__main__":
+    run_bot()
     run_bot()
