@@ -888,11 +888,11 @@ async def start_http_server():
     app.add_routes([web.get('/', health_check)])
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)  # Открываем порт 8080
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
     await site.start()
     print("HTTP server started on port 8080")
 
-def run_bot() -> None:
+async def run_bot_async():
     print("Starting bot with token:", config.telegram_token[:10], "...")
     application = (
         ApplicationBuilder()
@@ -905,7 +905,7 @@ def run_bot() -> None:
         .build()
     )
 
-    # Добавляем handlers (оставь свой текущий код без изменений)
+    # Handlers
     user_filter = filters.ALL
     if len(config.allowed_telegram_usernames) > 0:
         usernames = [x for x in config.allowed_telegram_usernames if isinstance(x, str)]
@@ -919,11 +919,19 @@ def run_bot() -> None:
 
     application.add_error_handler(error_handle)
 
-    # Запускаем HTTP-сервер и бота одновременно
+    await application.run_polling()
+
+def run_bot():
     loop = asyncio.get_event_loop()
-    loop.create_task(start_http_server())  # Запускаем HTTP-сервер
-    application.run_polling()
+    try:
+        # Запускаем HTTP-сервер и бота параллельно
+        tasks = [
+            loop.create_task(start_http_server()),
+            loop.create_task(run_bot_async())
+        ]
+        loop.run_until_complete(asyncio.gather(*tasks))
+    finally:
+        loop.close()
 
 if __name__ == "__main__":
-    run_bot()
     run_bot()
